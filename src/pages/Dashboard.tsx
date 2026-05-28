@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Search, Package, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import { Search, Package, Loader2, Plus, Pencil, Trash2, ClipboardList, X } from "lucide-react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { CautelaModal } from "@/components/CautelaModal";
+import { CautelaMultiplaModal } from "@/components/CautelaMultiplaModal";
 import { MaterialFormModal } from "@/components/MaterialFormModal";
 
 interface Material {
@@ -34,7 +36,15 @@ const Dashboard = () => {
   const [search, setSearch] = useState("");
   const [filtroSituacao, setFiltroSituacao] = useState("todos");
   const [filtroTipo, setFiltroTipo] = useState("todos");
+
+  // Seleção unitária (comportamento original)
   const [selected, setSelected] = useState<Material | null>(null);
+
+  // Seleção múltipla (nova funcionalidade)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [multiCautelaOpen, setMultiCautelaOpen] = useState(false);
+
+  // Formulário de material
   const [formOpen, setFormOpen] = useState(false);
   const [editMaterial, setEditMaterial] = useState<Material | null>(null);
 
@@ -65,6 +75,37 @@ const Dashboard = () => {
     return matchSearch && matchSituacao && matchTipo;
   });
 
+  // Apenas materiais disponíveis podem ser selecionados para cautela em lote
+  const disponiveis = filtered.filter(
+    (m) => m.situacao?.toLowerCase() === "disponível" || m.situacao?.toLowerCase() === "disponivel"
+  );
+  const allSelected =
+    disponiveis.length > 0 && disponiveis.every((m) => selectedIds.has(m.id_patrimonio));
+  const someSelected = disponiveis.some((m) => selectedIds.has(m.id_patrimonio));
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(disponiveis.map((m) => m.id_patrimonio)));
+    }
+  };
+
+  const toggleSelect = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectedMaterials = materiais.filter((m) => selectedIds.has(m.id_patrimonio));
+
   const handleOpenNew = () => {
     setEditMaterial(null);
     setFormOpen(true);
@@ -94,6 +135,9 @@ const Dashboard = () => {
       }
     }
   };
+
+  const isDisponivel = (m: Material) =>
+    m.situacao?.toLowerCase() === "disponível" || m.situacao?.toLowerCase() === "disponivel";
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -159,6 +203,24 @@ const Dashboard = () => {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    {/* Coluna de checkbox para seleção em lote */}
+                    <TableHead className="w-[48px] pl-4">
+                      <Checkbox
+                        id="select-all"
+                        checked={allSelected}
+                        data-state={someSelected && !allSelected ? "indeterminate" : undefined}
+                        onCheckedChange={toggleSelectAll}
+                        aria-label="Selecionar todos os disponíveis"
+                        disabled={disponiveis.length === 0}
+                        title={
+                          disponiveis.length === 0
+                            ? "Nenhum material disponível para seleção"
+                            : allSelected
+                            ? "Desmarcar todos"
+                            : "Selecionar todos disponíveis"
+                        }
+                      />
+                    </TableHead>
                     <TableHead className="font-semibold">Nº Patrimônio</TableHead>
                     <TableHead className="font-semibold">Descrição</TableHead>
                     <TableHead className="font-semibold">Valor</TableHead>
@@ -171,49 +233,78 @@ const Dashboard = () => {
                 <TableBody>
                   {filtered.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                         Nenhum material encontrado.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filtered.map((m) => (
-                      <TableRow
-                        key={m.id_patrimonio}
-                        className="cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() => setSelected(m)}
-                      >
-                        <TableCell className="font-mono font-medium">{m.id_patrimonio}</TableCell>
-                        <TableCell>{m.descricao}</TableCell>
-                        <TableCell>
-                          {m.valor != null
-                            ? m.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
-                            : "—"}
-                        </TableCell>
-                        <TableCell>{m.tipo}</TableCell>
-                        <TableCell>{situacaoBadge(m.situacao)}</TableCell>
-                        <TableCell>{m.responsavel || "Estoque"}</TableCell>
-                        <TableCell className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            onClick={(e) => handleOpenEdit(m, e)}
-                            title="Editar material"
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={(e) => handleDelete(m, e)}
-                            title="Excluir material"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))
+                    filtered.map((m) => {
+                      const disponivel = isDisponivel(m);
+                      const isChecked = selectedIds.has(m.id_patrimonio);
+                      return (
+                        <TableRow
+                          key={m.id_patrimonio}
+                          className={`cursor-pointer hover:bg-muted/50 transition-colors ${
+                            isChecked ? "bg-primary/5 hover:bg-primary/10" : ""
+                          }`}
+                          onClick={() => setSelected(m)}
+                        >
+                          <TableCell className="pl-4" onClick={(e) => e.stopPropagation()}>
+                            {disponivel ? (
+                              <Checkbox
+                                id={`select-${m.id_patrimonio}`}
+                                checked={isChecked}
+                                onCheckedChange={() => {
+                                  setSelectedIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(m.id_patrimonio)) {
+                                      next.delete(m.id_patrimonio);
+                                    } else {
+                                      next.add(m.id_patrimonio);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                aria-label={`Selecionar ${m.descricao}`}
+                              />
+                            ) : (
+                              /* Espaço reservado para manter alinhamento */
+                              <div className="w-4 h-4" />
+                            )}
+                          </TableCell>
+                          <TableCell className="font-mono font-medium">{m.id_patrimonio}</TableCell>
+                          <TableCell>{m.descricao}</TableCell>
+                          <TableCell>
+                            {m.valor != null
+                              ? m.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+                              : "—"}
+                          </TableCell>
+                          <TableCell>{m.tipo}</TableCell>
+                          <TableCell>{situacaoBadge(m.situacao)}</TableCell>
+                          <TableCell>{m.responsavel || "Estoque"}</TableCell>
+                          <TableCell className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={(e) => handleOpenEdit(m, e)}
+                              title="Editar material"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              onClick={(e) => handleDelete(m, e)}
+                              title="Excluir material"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })
                   )}
                 </TableBody>
               </Table>
@@ -222,6 +313,33 @@ const Dashboard = () => {
         </CardContent>
       </Card>
 
+      {/* ===== BARRA DE AÇÃO FLUTUANTE (aparece quando há seleção) ===== */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-primary text-primary-foreground px-5 py-3 rounded-full shadow-2xl border border-primary/20 animate-in slide-in-from-bottom-4 duration-300">
+          <ClipboardList className="h-4 w-4 shrink-0" />
+          <span className="font-semibold text-sm">
+            {selectedIds.size} {selectedIds.size === 1 ? "item selecionado" : "itens selecionados"}
+          </span>
+          <div className="w-px h-4 bg-primary-foreground/30" />
+          <Button
+            size="sm"
+            variant="secondary"
+            className="h-7 px-3 text-xs font-semibold"
+            onClick={() => setMultiCautelaOpen(true)}
+          >
+            Cautelar em Lote
+          </Button>
+          <button
+            className="ml-1 hover:opacity-70 transition-opacity"
+            onClick={() => setSelectedIds(new Set())}
+            title="Limpar seleção"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Modal de cautela unitária (comportamento original inalterado) */}
       {selected && (
         <CautelaModal
           material={selected}
@@ -233,6 +351,18 @@ const Dashboard = () => {
           }}
         />
       )}
+
+      {/* Modal de cautela em lote (novo) */}
+      <CautelaMultiplaModal
+        materials={selectedMaterials}
+        open={multiCautelaOpen}
+        onClose={() => setMultiCautelaOpen(false)}
+        onSuccess={() => {
+          setMultiCautelaOpen(false);
+          setSelectedIds(new Set());
+          fetchMateriais();
+        }}
+      />
 
       <MaterialFormModal
         open={formOpen}
