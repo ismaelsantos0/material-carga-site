@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Users, Plus, Loader2, Search, Trash2, UserCheck } from "lucide-react";
@@ -28,9 +29,11 @@ const emptyForm = {
 };
 
 const Militares = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [militares, setMilitares] = useState<Militar[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
+  // Lê o parâmetro ?search= da URL (vindo da Auditoria)
+  const [search, setSearch] = useState(searchParams.get("search") || "");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
@@ -47,6 +50,20 @@ const Militares = () => {
   };
 
   useEffect(() => { fetchMilitares(); }, []);
+
+  // Sincroniza o campo de busca com a URL
+  useEffect(() => {
+    const paramSearch = searchParams.get("search") || "";
+    if (paramSearch) setSearch(paramSearch);
+  }, [searchParams]);
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    // Limpa o parâmetro da URL ao digitar manualmente
+    if (searchParams.get("search")) {
+      setSearchParams({});
+    }
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -146,8 +163,26 @@ const Militares = () => {
         <CardHeader className="pb-3">
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Buscar militar..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" />
+            <Input
+              placeholder="Buscar militar..."
+              value={search}
+              onChange={(e) => handleSearchChange(e.target.value)}
+              className="pl-9"
+            />
           </div>
+          {/* Indicador quando veio da Auditoria */}
+          {searchParams.get("search") && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Filtrado por: <span className="font-medium text-primary">"{searchParams.get("search")}"</span>
+              {" "}—{" "}
+              <button
+                onClick={() => { setSearchParams({}); setSearch(""); }}
+                className="underline hover:text-foreground"
+              >
+                limpar filtro
+              </button>
+            </p>
+          )}
         </CardHeader>
         <CardContent className="p-0">
           {loading ? (
@@ -170,9 +205,22 @@ const Militares = () => {
                 </TableHeader>
                 <TableBody>
                   {filtered.length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Nenhum militar encontrado.</TableCell></TableRow>
+                    <TableRow>
+                      <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                        Nenhum militar encontrado.
+                      </TableCell>
+                    </TableRow>
                   ) : filtered.map((m) => (
-                    <TableRow key={m.id_militar}>
+                    <TableRow
+                      key={m.id_militar}
+                      className={
+                        search &&
+                        (m.nome_de_guerra?.toLowerCase().includes(search.toLowerCase()) ||
+                          m.nome_completo?.toLowerCase().includes(search.toLowerCase()))
+                          ? "bg-primary/5"
+                          : ""
+                      }
+                    >
                       <TableCell className="font-medium">{m.posto_graduacao}</TableCell>
                       <TableCell className="font-semibold">{m.nome_de_guerra}</TableCell>
                       <TableCell>{m.nome_completo}</TableCell>
